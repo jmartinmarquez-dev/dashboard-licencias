@@ -130,7 +130,7 @@
                     <p id="total-customers" class="text-4xl font-bold text-gray-800 mt-2">0</p>
                 </div>
                 <div class="kpi-card">
-                    <h3 class="text-gray-500 font-medium">Licencias Totales Contratadas</h3>
+                    <h3 id="total-licenses-title" class="text-gray-500 font-medium">Licencias Totales Contratadas</h3>
                     <p id="total-licenses" class="text-4xl font-bold text-gray-800 mt-2">0</p>
                 </div>
                 <div id="exceeded-customers-kpi" class="kpi-card cursor-pointer">
@@ -193,7 +193,7 @@
             <!-- Charts -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                 <div class="chart-container">
-                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Top 10 Clientes por Consumo Nominal</h3>
+                    <h3 id="consumption-chart-title" class="text-xl font-semibold text-gray-700 mb-4">Top 10 Clientes</h3>
                     <canvas id="consumption-chart"></canvas>
                 </div>
                 <div class="chart-container">
@@ -509,29 +509,89 @@
         function updateKPIs(data) {
             const uniqueCustomers = new Set(data.map(row => row['Customer']));
             document.getElementById('total-customers').textContent = uniqueCustomers.size;
-            const totalLicenses = data.reduce((sum, row) => sum + (parseInt(row['Licenses'], 10) || 0), 0);
-            document.getElementById('total-licenses').textContent = totalLicenses.toLocaleString('es-ES');
+            
+            // --- Logic for dynamic "Total Licenses" card ---
+            const endDateFilter = document.getElementById('filter-end-date').value;
+            const licensesTitleEl = document.getElementById('total-licenses-title');
+            const licensesValueEl = document.getElementById('total-licenses');
+
+            if (endDateFilter) {
+                const [endYear, endMonth] = endDateFilter.split('-').map(Number);
+                
+                const monthStr = String(endMonth).padStart(2, '0');
+                const yearStr = String(endYear).slice(-2);
+                licensesTitleEl.textContent = `Licencias totales contratadas en ${monthStr}-${yearStr}`;
+
+                const dataForLastMonth = data.filter(row => {
+                    return parseInt(row['Year'], 10) === endYear && (getMonthNumber(row['Month']) + 1) === endMonth;
+                });
+                
+                const totalLicensesForMonth = dataForLastMonth.reduce((sum, row) => sum + (parseInt(row['Licenses'], 10) || 0), 0);
+                licensesValueEl.textContent = totalLicensesForMonth.toLocaleString('es-ES');
+
+            } else {
+                licensesTitleEl.textContent = 'Licencias Totales Contratadas';
+                licensesValueEl.textContent = '0';
+            }
+            // --- End of dynamic logic ---
+            
             const customersWithExcess = new Set(data.filter(row => row['Exceeded Licenses'] === 'YES').map(row => row['Customer']));
             document.getElementById('exceeded-customers').textContent = customersWithExcess.size;
+            
             const totalExceeded = data.reduce((sum, row) => sum + (parseInt(row['Nb. Exceeded Licenses'], 10) || 0), 0);
             document.getElementById('total-exceeded').textContent = totalExceeded.toLocaleString('es-ES');
         }
 
         function updateOverviewCharts(data) {
-            // Top 10 Customers Chart
-            const customerConsumption = data.reduce((acc, row) => {
-                const customer = row['Customer'];
-                const consumption = parseInt(row['Nominal Consumption'], 10) || 0;
-                if (!acc[customer]) acc[customer] = 0;
-                acc[customer] += consumption;
-                return acc;
-            }, {});
-            const sortedCustomers = Object.entries(customerConsumption).sort(([, a], [, b]) => b - a).slice(0, 10);
+            // --- Top 10 Customers Chart (Now dynamic based on end date) ---
             const consumptionCtx = document.getElementById('consumption-chart').getContext('2d');
-            if(consumptionChartInstance) consumptionChartInstance.destroy();
-            consumptionChartInstance = new Chart(consumptionCtx, { 
-                type: 'bar', data: { labels: sortedCustomers.map(item => item[0]), datasets: [{ label: 'Consumo Nominal Acumulado', data: sortedCustomers.map(item => item[1]), backgroundColor: 'rgba(59, 130, 246, 0.7)', borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 1 }] }, options: { responsive: true, indexAxis: 'y', scales: { x: { beginAtZero: true } }, plugins: { legend: { display: false } } }
-            });
+            const consumptionChartTitleEl = document.getElementById('consumption-chart-title');
+            const endDateFilter = document.getElementById('filter-end-date').value;
+
+            if (consumptionChartInstance) consumptionChartInstance.destroy();
+
+            if (endDateFilter) {
+                const [endYear, endMonth] = endDateFilter.split('-').map(Number);
+                
+                const monthStr = String(endMonth).padStart(2, '0');
+                const yearStr = String(endYear).slice(-2);
+                consumptionChartTitleEl.textContent = `Top 10 clientes por licencias contratadas en ${monthStr}-${yearStr}`;
+
+                // Filter data to only include the last month selected from the already filtered data
+                const dataForLastMonth = data.filter(row => {
+                    return parseInt(row['Year'], 10) === endYear && (getMonthNumber(row['Month']) + 1) === endMonth;
+                });
+
+                // Get top 10 customers by licenses for that month
+                const sortedCustomers = dataForLastMonth
+                    .sort((a, b) => (parseInt(b['Licenses'], 10) || 0) - (parseInt(a['Licenses'], 10) || 0))
+                    .slice(0, 10);
+
+                consumptionChartInstance = new Chart(consumptionCtx, { 
+                    type: 'bar', 
+                    data: { 
+                        labels: sortedCustomers.map(row => row['Customer']), 
+                        datasets: [{ 
+                            label: 'Licencias Contratadas', 
+                            data: sortedCustomers.map(row => parseInt(row['Licenses'], 10) || 0), 
+                            backgroundColor: 'rgba(59, 130, 246, 0.7)', 
+                            borderColor: 'rgba(59, 130, 246, 1)', 
+                            borderWidth: 1 
+                        }] 
+                    }, 
+                    options: { 
+                        responsive: true, 
+                        indexAxis: 'y', 
+                        scales: { x: { beginAtZero: true } }, 
+                        plugins: { legend: { display: false } } 
+                    }
+                });
+
+            } else {
+                // Fallback if no date is selected
+                consumptionChartTitleEl.textContent = 'Top 10 Clientes';
+            }
+
 
             // Exceeded Licenses Trend
             const trendData = data.reduce((acc, row) => {
