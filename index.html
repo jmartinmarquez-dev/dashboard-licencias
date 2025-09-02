@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel de Análisis de Licencias</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .kpi-card {
+            background-color: white;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transition: transform 0.2s;
+        }
+        .kpi-card:hover {
+            transform: translateY(-5px);
+        }
+        .chart-container {
+            background-color: white;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        /* Custom style for multi-select */
+        #filter-instance-type, #filter-customer, #filter-platform {
+            height: 100px; /* Adjust height as needed */
+        }
+        #filter-instance-type option, #filter-customer option, #filter-platform option {
+            padding: 4px 8px;
+        }
+        #exceeded-details-tbody tr:hover {
+            background-color: #f9fafb;
+        }
+        /* Styles for sortable table headers */
+        .sortable-header .sort-arrow {
+            display: inline-block;
+            width: 1em;
+            text-align: left;
+            opacity: 0.4;
+            transition: opacity 0.2s;
+        }
+        .sortable-header:hover .sort-arrow {
+            opacity: 0.8;
+        }
+        .sortable-header.asc .sort-arrow::after {
+            content: '▲';
+            opacity: 1;
+        }
+        .sortable-header.desc .sort-arrow::after {
+            content: '▼';
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-gray-800">Panel de Análisis de Licencias</h1>
+            <p class="text-lg text-gray-600 mt-2">Carga tus datos CSV para visualizar el estado del consumo de licencias de tus clientes.</p>
+        </header>
+
+        <!-- CSV Input Section -->
+        <div class="mb-8 bg-white p-6 rounded-xl shadow-md">
+            <label for="csv-file-input" class="block text-xl font-semibold text-gray-700 mb-3">Selecciona tu archivo CSV</label>
+            <input type="file" id="csv-file-input" accept=".csv" class="block w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200 transition cursor-pointer"/>
+            <p class="mt-2 text-sm text-gray-500">El análisis comenzará automáticamente al seleccionar un archivo.</p>
+        </div>
+        
+        <!-- Loading Progress Bar Section -->
+        <div id="loading-section" class="hidden mb-8 bg-white p-6 rounded-xl shadow-md">
+             <h3 class="text-xl font-semibold text-gray-700 mb-4">Analizando datos...</h3>
+             <div class="w-full bg-gray-200 rounded-full">
+                 <div id="progress-bar" class="bg-blue-600 text-xs font-medium text-blue-100 text-center p-0.5 leading-none rounded-full" style="width: 0%;"></div>
+             </div>
+             <p class="mt-3 text-gray-600">Por favor, espera un momento mientras procesamos tu archivo.</p>
+        </div>
+
+        <!-- Main Dashboard (initially hidden) -->
+        <main id="dashboard-content" class="hidden">
+            <!-- Filter Section -->
+            <div class="bg-white p-6 rounded-xl shadow-md mb-8">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Filtros</h3>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 items-start">
+                    <div>
+                        <label for="filter-customer" class="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
+                        <select id="filter-customer" multiple class="p-2 border rounded-lg w-full bg-white"></select>
+                    </div>
+                     <div>
+                        <label for="filter-exceeded" class="block text-sm font-medium text-gray-700 mb-1">Exceso de Licencias</label>
+                        <select id="filter-exceeded" class="p-2 border rounded-lg w-full">
+                            <option value="">Todos</option>
+                            <option value="YES">Con Exceso</option>
+                            <option value="NO">Sin Exceso</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label for="filter-start-date" class="block text-sm font-medium text-gray-700 mb-1">Desde</label>
+                            <select id="filter-start-date" class="p-2 border rounded-lg w-full" title="Fecha de inicio"></select>
+                        </div>
+                        <div>
+                            <label for="filter-end-date" class="block text-sm font-medium text-gray-700 mb-1">Hasta</label>
+                            <select id="filter-end-date" class="p-2 border rounded-lg w-full" title="Fecha de fin"></select>
+                        </div>
+                    </div>
+                    <div>
+                         <label for="filter-instance-type" class="block text-sm font-medium text-gray-700 mb-1">Tipo de Instancia</label>
+                         <select id="filter-instance-type" multiple class="p-2 border rounded-lg w-full bg-white"></select>
+                    </div>
+                    <div>
+                         <label for="filter-platform" class="block text-sm font-medium text-gray-700 mb-1">Plataforma</label>
+                         <select id="filter-platform" multiple class="p-2 border rounded-lg w-full bg-white"></select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPIs -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="kpi-card">
+                    <h3 class="text-gray-500 font-medium">Total Clientes Activos</h3>
+                    <p id="total-customers" class="text-4xl font-bold text-gray-800 mt-2">0</p>
+                </div>
+                <div class="kpi-card">
+                    <h3 class="text-gray-500 font-medium">Licencias Totales Contratadas</h3>
+                    <p id="total-licenses" class="text-4xl font-bold text-gray-800 mt-2">0</p>
+                </div>
+                <div id="exceeded-customers-kpi" class="kpi-card cursor-pointer">
+                    <h3 class="text-gray-500 font-medium">Clientes con Exceso</h3>
+                    <p id="exceeded-customers" class="text-4xl font-bold text-red-500 mt-2">0</p>
+                </div>
+                <div class="kpi-card">
+                    <h3 class="text-gray-500 font-medium">Total Licencias Excedidas</h3>
+                    <p id="total-exceeded" class="text-4xl font-bold text-red-500 mt-2">0</p>
+                </div>
+            </div>
+            
+            <!-- Exceeded Licenses Details Table (hidden by default) -->
+            <div id="exceeded-details-section" class="hidden mb-8">
+                <div class="chart-container">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Detalle de Clientes con Licencias Excedidas</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-sort-by="customer">Cliente <span class="sort-arrow"></span></th>
+                                    <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-sort-by="maxLicenses">Máx. Licencias Contratadas (en el periodo) <span class="sort-arrow"></span></th>
+                                    <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-sort-by="totalExceeded">Total Licencias Excedidas (en el periodo) <span class="sort-arrow"></span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="exceeded-details-tbody" class="bg-white divide-y divide-gray-200">
+                                <!-- Rows will be inserted here by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Customer Drilldown Details Table (hidden by default) -->
+            <div id="customer-details-section" class="hidden mb-8">
+                <div class="chart-container">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 id="customer-details-title" class="text-xl font-semibold text-gray-700"></h3>
+                        <button id="close-customer-details" class="px-4 py-2 bg-gray-200 text-gray-800 text-sm font-medium rounded-lg hover:bg-gray-300">Cerrar</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha de Observación</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Licenses</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RAU Consumption</th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nb. Exceeded Licenses</th>
+                                </tr>
+                            </thead>
+                            <tbody id="customer-details-tbody" class="bg-white divide-y divide-gray-200">
+                                <!-- Rows for specific customer details -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <div class="chart-container">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Top 10 Clientes por Consumo Nominal</h3>
+                    <canvas id="consumption-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Evolución de Licencias Excedidas</h3>
+                    <canvas id="exceeded-trend-chart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Consumption Trends Chart -->
+            <div class="grid grid-cols-1 gap-8 mb-8">
+                <div class="chart-container">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Evolución de Consumo vs. Licencias</h3>
+                    <canvas id="consumption-trends-chart"></canvas>
+                </div>
+            </div>
+            
+            <!-- New Dynamic Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+                <div class="chart-container">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Clientes por Tipo de Licencia</h3>
+                    <canvas id="license-type-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Clientes por Producto</h3>
+                    <canvas id="product-chart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Distribución de Clientes por Licencias</h3>
+                    <canvas id="license-distribution-chart"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
+        <div class="relative mx-auto p-5 border w-full max-w-sm shadow-lg rounded-xl bg-white">
+            <div class="mt-3 text-center">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Aviso</h3>
+                <div class="mt-2 px-7 py-3">
+                    <p id="modal-message" class="text-sm text-gray-600"></p>
+                </div>
+                <div class="items-center px-4 py-3">
+                    <button id="modal-close-btn" class="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-lg w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // Store chart instances to destroy them before re-rendering
+        let consumptionChartInstance = null;
+        let exceededTrendChartInstance = null;
+        let consumptionTrendsChartInstance = null;
+        let licenseTypeChartInstance = null;
+        let productChartInstance = null;
+        let licenseDistributionChartInstance = null;
+        
+        let originalData = [];
+        let dashboardData = []; // Data pre-filtered for active clients
+        let lastFilteredData = []; // Store the last filtered dataset for re-sorting
+        let sortState = { column: 'customer', direction: 'asc' }; // Initial sort state
+
+        // --- File input logic with progress bar ---
+        document.getElementById('csv-file-input').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) { return; }
+
+            const loadingSection = document.getElementById('loading-section');
+            const progressBar = document.getElementById('progress-bar');
+            const dashboardContent = document.getElementById('dashboard-content');
+
+            dashboardContent.classList.add('hidden');
+            loadingSection.classList.remove('hidden');
+            progressBar.style.transition = 'none';
+            progressBar.style.width = '0%';
+            
+            progressBar.offsetHeight; 
+
+            setTimeout(() => {
+                progressBar.style.transition = 'width 2s ease-in-out';
+                progressBar.style.width = '100%';
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    setTimeout(() => {
+                        const csvText = e.target.result;
+                        if (!csvText || !csvText.trim()) {
+                            showModal('El archivo CSV está vacío o no se pudo leer.');
+                            loadingSection.classList.add('hidden');
+                            return;
+                        }
+                        
+                        try {
+                            const parsedData = parseCSV(csvText);
+                            originalData = parsedData; 
+                            initializeDashboard(originalData);
+                            loadingSection.classList.add('hidden');
+                            dashboardContent.classList.remove('hidden');
+                        } catch (error) {
+                            console.error("Error parsing CSV:", error);
+                            showModal("Hubo un error al procesar el archivo CSV. Asegúrate de que el formato sea correcto y que el delimitador sea ';'.");
+                            loadingSection.classList.add('hidden');
+                        }
+                    }, 1500);
+                };
+
+                reader.onerror = () => {
+                    console.error("Error reading file:", reader.error);
+                    showModal("No se pudo leer el archivo seleccionado.");
+                    loadingSection.classList.add('hidden');
+                };
+                reader.readAsText(file);
+            }, 100);
+        });
+
+
+        // --- Modal logic ---
+        function showModal(message) {
+            document.getElementById('modal-message').textContent = message;
+            document.getElementById('modal').classList.remove('hidden');
+        }
+        document.getElementById('modal-close-btn').addEventListener('click', () => {
+            document.getElementById('modal').classList.add('hidden');
+        });
+
+        // --- Event Listeners for filters ---
+        ['filter-customer', 'filter-exceeded', 'filter-start-date', 'filter-end-date', 'filter-instance-type', 'filter-platform'].forEach(id => {
+            document.getElementById(id).addEventListener('input', applyFilters);
+        });
+
+        document.getElementById('exceeded-customers-kpi').addEventListener('click', () => {
+            const detailsSection = document.getElementById('exceeded-details-section');
+            detailsSection.classList.toggle('hidden');
+            // Hide customer details if we toggle the main table
+            document.getElementById('customer-details-section').classList.add('hidden');
+        });
+        
+        document.getElementById('close-customer-details').addEventListener('click', () => {
+            document.getElementById('customer-details-section').classList.add('hidden');
+        });
+        
+        function getMonthNumber(monthName) {
+            if (!monthName) return -1;
+            // Returns 0 for January, 1 for February, etc.
+            return new Date(Date.parse(monthName + " 1, 2012")).getMonth();
+        }
+
+        function applyFilters() {
+            // When filters change, hide the specific customer detail view
+            document.getElementById('customer-details-section').classList.add('hidden');
+            
+            const selectedCustomers = Array.from(document.getElementById('filter-customer').selectedOptions).map(option => option.value);
+            const exceededFilter = document.getElementById('filter-exceeded').value;
+            const startDateFilter = document.getElementById('filter-start-date').value;
+            const endDateFilter = document.getElementById('filter-end-date').value;
+            const selectedInstanceTypes = Array.from(document.getElementById('filter-instance-type').selectedOptions).map(option => option.value);
+            const selectedPlatforms = Array.from(document.getElementById('filter-platform').selectedOptions).map(option => option.value);
+
+            let filteredData = dashboardData.filter(row => {
+                // Date filter is the primary condition
+                let dateMatch = true; 
+                if (startDateFilter && endDateFilter) {
+                    const [startYear, startMonth] = startDateFilter.split('-').map(Number);
+                    const [endYear, endMonth] = endDateFilter.split('-').map(Number);
+
+                    const rowYear = parseInt(row['Year'], 10);
+                    const rowMonth = getMonthNumber(row['Month']) + 1; // Convert 0-11 to 1-12 for comparison
+
+                    if (!rowYear || rowMonth === 0) { // check for invalid year or month
+                        dateMatch = false;
+                    } else {
+                        // Create numeric values for easy comparison e.g., 202501
+                        const rowDateVal = rowYear * 100 + rowMonth;
+                        const startDateVal = startYear * 100 + startMonth;
+                        const endDateVal = endYear * 100 + endMonth;
+                        dateMatch = rowDateVal >= startDateVal && rowDateVal <= endDateVal;
+                    }
+                }
+                
+                // Other filters
+                const customerMatch = selectedCustomers.length === 0 || selectedCustomers.includes(row['Customer']);
+                const exceededMatch = exceededFilter ? row['Exceeded Licenses'] === exceededFilter : true;
+                const instanceTypeMatch = selectedInstanceTypes.length === 0 || selectedInstanceTypes.includes(row['Instance Type']);
+                const platformMatch = selectedPlatforms.length === 0 || selectedPlatforms.includes(row['Platform']);
+                
+                return dateMatch && customerMatch && exceededMatch && instanceTypeMatch && platformMatch;
+            });
+            
+            lastFilteredData = filteredData; // Store for re-sorting
+            updateDashboard(filteredData);
+        }
+
+        function parseCSV(text) {
+            const lines = text.trim().split(/\r?\n/);
+            const headers = lines[0].split(';').map(h => h.trim());
+            const data = lines.slice(1).map(line => {
+                const values = line.split(';');
+                const obj = {};
+                headers.forEach((header, index) => {
+                    obj[header] = values[index] ? values[index].trim() : '';
+                });
+                return obj;
+            });
+            return data;
+        }
+        
+        function initializeDashboard(data) {
+            dashboardData = data.filter(row => row['Active'] === 'YES');
+            populateCustomerFilter(dashboardData);
+            populateDateFilters(dashboardData);
+            populateInstanceTypeFilter(dashboardData);
+            populatePlatformFilter(dashboardData);
+            
+            // Add event listeners for sorting headers
+            document.querySelectorAll('#exceeded-details-section .sortable-header').forEach(header => {
+                header.addEventListener('click', () => {
+                    const column = header.dataset.sortBy;
+                    if (sortState.column === column) {
+                        sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sortState.column = column;
+                        sortState.direction = 'asc';
+                    }
+                    // Re-render the table with new sort, using the last filtered data
+                    updateExceededDetailsTable(lastFilteredData); 
+                });
+            });
+            
+            applyFilters(); // Apply initial filters to render everything
+        }
+
+        function updateDashboard(data) {
+             updateKPIs(data);
+             updateOverviewCharts(data);
+             updateConsumptionTrendsChart(data);
+             updateDynamicCharts(data);
+             updateExceededDetailsTable(data);
+        }
+        
+        function populateCustomerFilter(data) {
+            const customers = new Set(data.map(row => row['Customer']).filter(Boolean));
+            const select = document.getElementById('filter-customer');
+            select.innerHTML = '';
+            Array.from(customers).sort().forEach(customer => {
+                const option = document.createElement('option');
+                option.value = customer;
+                option.textContent = customer;
+                select.appendChild(option);
+            });
+        }
+
+        function populateDateFilters(data) {
+            const periods = new Set();
+            data.forEach(row => {
+                const monthNum = getMonthNumber(row['Month']);
+                if (row['Year'] && monthNum !== -1) {
+                    const period = `${row['Year']}-${String(monthNum + 1).padStart(2, '0')}`;
+                    periods.add(period);
+                }
+            });
+
+            const sortedPeriods = Array.from(periods).sort();
+            const startSelect = document.getElementById('filter-start-date');
+            const endSelect = document.getElementById('filter-end-date');
+            startSelect.innerHTML = '';
+            endSelect.innerHTML = '';
+
+            sortedPeriods.forEach(period => {
+                const option1 = document.createElement('option');
+                option1.value = period;
+                option1.textContent = period;
+                startSelect.appendChild(option1);
+                const option2 = document.createElement('option');
+                option2.value = period;
+                option2.textContent = period;
+                endSelect.appendChild(option2);
+            });
+
+            if (sortedPeriods.length > 0) {
+                startSelect.value = sortedPeriods[0];
+                endSelect.value = sortedPeriods[sortedPeriods.length - 1];
+            }
+        }
+
+        function populateInstanceTypeFilter(data) {
+            const instanceTypes = new Set(data.map(row => row['Instance Type']).filter(Boolean)); // Filter out empty/null values
+            const select = document.getElementById('filter-instance-type');
+            select.innerHTML = '';
+            Array.from(instanceTypes).sort().forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = type;
+                select.appendChild(option);
+            });
+        }
+        
+        function populatePlatformFilter(data) {
+            const platforms = new Set(data.map(row => row['Platform']).filter(Boolean));
+            const select = document.getElementById('filter-platform');
+            select.innerHTML = '';
+            Array.from(platforms).sort().forEach(platform => {
+                const option = document.createElement('option');
+                option.value = platform;
+                option.textContent = platform;
+                select.appendChild(option);
+            });
+        }
+
+        function updateKPIs(data) {
+            const uniqueCustomers = new Set(data.map(row => row['Customer']));
+            document.getElementById('total-customers').textContent = uniqueCustomers.size;
+            const totalLicenses = data.reduce((sum, row) => sum + (parseInt(row['Licenses'], 10) || 0), 0);
+            document.getElementById('total-licenses').textContent = totalLicenses.toLocaleString('es-ES');
+            const customersWithExcess = new Set(data.filter(row => row['Exceeded Licenses'] === 'YES').map(row => row['Customer']));
+            document.getElementById('exceeded-customers').textContent = customersWithExcess.size;
+            const totalExceeded = data.reduce((sum, row) => sum + (parseInt(row['Nb. Exceeded Licenses'], 10) || 0), 0);
+            document.getElementById('total-exceeded').textContent = totalExceeded.toLocaleString('es-ES');
+        }
+
+        function updateOverviewCharts(data) {
+            // Top 10 Customers Chart
+            const customerConsumption = data.reduce((acc, row) => {
+                const customer = row['Customer'];
+                const consumption = parseInt(row['Nominal Consumption'], 10) || 0;
+                if (!acc[customer]) acc[customer] = 0;
+                acc[customer] += consumption;
+                return acc;
+            }, {});
+            const sortedCustomers = Object.entries(customerConsumption).sort(([, a], [, b]) => b - a).slice(0, 10);
+            const consumptionCtx = document.getElementById('consumption-chart').getContext('2d');
+            if(consumptionChartInstance) consumptionChartInstance.destroy();
+            consumptionChartInstance = new Chart(consumptionCtx, { 
+                type: 'bar', data: { labels: sortedCustomers.map(item => item[0]), datasets: [{ label: 'Consumo Nominal Acumulado', data: sortedCustomers.map(item => item[1]), backgroundColor: 'rgba(59, 130, 246, 0.7)', borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 1 }] }, options: { responsive: true, indexAxis: 'y', scales: { x: { beginAtZero: true } }, plugins: { legend: { display: false } } }
+            });
+
+            // Exceeded Licenses Trend
+            const trendData = data.reduce((acc, row) => {
+                const monthNum = getMonthNumber(row['Month']);
+                if (row['Year'] && monthNum !== -1) {
+                    const period = `${row['Year']}-${String(monthNum + 1).padStart(2, '0')}`;
+                    const exceeded = parseInt(row['Nb. Exceeded Licenses'], 10) || 0;
+                    if (!acc[period]) acc[period] = 0;
+                    acc[period] += exceeded;
+                }
+                return acc;
+            }, {});
+            const sortedPeriods = Object.entries(trendData).sort(([a], [b]) => a.localeCompare(b));
+            const trendCtx = document.getElementById('exceeded-trend-chart').getContext('2d');
+            if(exceededTrendChartInstance) exceededTrendChartInstance.destroy();
+            exceededTrendChartInstance = new Chart(trendCtx, {
+                type: 'line', data: { labels: sortedPeriods.map(item => item[0]), datasets: [{ label: 'Licencias Excedidas por Mes', data: sortedPeriods.map(item => item[1]), fill: true, backgroundColor: 'rgba(239, 68, 68, 0.2)', borderColor: 'rgba(239, 68, 68, 1)', tension: 0.1 }] }, options: { responsive: true, scales: { y: { beginAtZero: true } } }
+            });
+        }
+        
+        function updateExceededDetailsTable(data) {
+            const tbody = document.getElementById('exceeded-details-tbody');
+            tbody.innerHTML = '';
+            
+            const customerDetails = new Map();
+
+            // Iterate through all filtered data once
+            data.forEach(row => {
+                const customer = row['Customer'];
+                const licenses = parseInt(row['Licenses'], 10) || 0;
+                const exceededInMonth = parseInt(row['Nb. Exceeded Licenses'], 10) || 0;
+
+                if (!customerDetails.has(customer)) {
+                    customerDetails.set(customer, { maxLicenses: 0, totalExceeded: 0 });
+                }
+                
+                const currentDetails = customerDetails.get(customer);
+                
+                if (licenses > currentDetails.maxLicenses) {
+                    currentDetails.maxLicenses = licenses;
+                }
+                currentDetails.totalExceeded += exceededInMonth;
+                
+                customerDetails.set(customer, currentDetails);
+            });
+
+            let exceededCustomers = Array.from(customerDetails.entries())
+                .filter(([customer, details]) => details.totalExceeded > 0);
+
+            // Sorting logic
+            exceededCustomers.sort((a, b) => {
+                const [customerA, detailsA] = a;
+                const [customerB, detailsB] = b;
+                let valA, valB;
+
+                switch (sortState.column) {
+                    case 'maxLicenses':
+                        valA = detailsA.maxLicenses;
+                        valB = detailsB.maxLicenses;
+                        break;
+                    case 'totalExceeded':
+                        valA = detailsA.totalExceeded;
+                        valB = detailsB.totalExceeded;
+                        break;
+                    case 'customer':
+                    default:
+                        valA = customerA;
+                        valB = customerB;
+                        break;
+                }
+
+                if (typeof valA === 'string') {
+                    return sortState.direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                } else {
+                    return sortState.direction === 'asc' ? valA - valB : valB - valA;
+                }
+            });
+            
+            // Update header visuals
+            document.querySelectorAll('#exceeded-details-section .sortable-header').forEach(header => {
+                header.classList.remove('asc', 'desc');
+                if (header.dataset.sortBy === sortState.column) {
+                    header.classList.add(sortState.direction);
+                }
+            });
+
+            if (exceededCustomers.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" class="px-6 py-4 text-center text-gray-500">No hay clientes con licencias excedidas en el periodo seleccionado.</td></tr>`;
+                return;
+            }
+            
+            exceededCustomers.forEach(([customer, details]) => {
+                const tr = document.createElement('tr');
+                tr.className = 'cursor-pointer';
+                tr.setAttribute('data-customer', customer);
+                tr.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${customer}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${details.maxLicenses.toLocaleString('es-ES')}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-semibold">${details.totalExceeded.toLocaleString('es-ES')}</td>
+                `;
+                tr.addEventListener('click', () => showCustomerDetails(customer));
+                tbody.appendChild(tr);
+            });
+        }
+
+        function showCustomerDetails(customerName) {
+            const detailsSection = document.getElementById('customer-details-section');
+            const detailsTitle = document.getElementById('customer-details-title');
+            const detailsTbody = document.getElementById('customer-details-tbody');
+            
+            detailsTitle.textContent = `Detalle para el Cliente: ${customerName}`;
+            detailsTbody.innerHTML = '';
+            
+            // Get all current filter values again to apply them
+            const startDateFilter = document.getElementById('filter-start-date').value;
+            const endDateFilter = document.getElementById('filter-end-date').value;
+            const exceededFilter = document.getElementById('filter-exceeded').value;
+            const selectedInstanceTypes = Array.from(document.getElementById('filter-instance-type').selectedOptions).map(option => option.value);
+            const selectedPlatforms = Array.from(document.getElementById('filter-platform').selectedOptions).map(option => option.value);
+
+            let customerData = dashboardData.filter(row => {
+                // Customer name must match
+                if (row['Customer'] !== customerName) return false;
+                
+                // Date filter
+                let dateMatch = true;
+                if (startDateFilter && endDateFilter) {
+                    const [startYear, startMonth] = startDateFilter.split('-').map(Number);
+                    const [endYear, endMonth] = endDateFilter.split('-').map(Number);
+                    const rowYear = parseInt(row['Year'], 10);
+                    const rowMonth = getMonthNumber(row['Month']) + 1;
+                    if (!rowYear || rowMonth === 0) {
+                        dateMatch = false;
+                    } else {
+                        const rowDateVal = rowYear * 100 + rowMonth;
+                        const startDateVal = startYear * 100 + startMonth;
+                        const endDateVal = endYear * 100 + endMonth;
+                        dateMatch = rowDateVal >= startDateVal && rowDateVal <= endDateVal;
+                    }
+                }
+                
+                // Other filters
+                const exceededMatch = exceededFilter ? row['Exceeded Licenses'] === exceededFilter : true;
+                const instanceTypeMatch = selectedInstanceTypes.length === 0 || selectedInstanceTypes.includes(row['Instance Type']);
+                const platformMatch = selectedPlatforms.length === 0 || selectedPlatforms.includes(row['Platform']);
+
+                return dateMatch && exceededMatch && instanceTypeMatch && platformMatch;
+            });
+            
+            // Sort by date
+            customerData.sort((a, b) => {
+                const aVal = (parseInt(a['Year'], 10) * 100) + (getMonthNumber(a['Month']) + 1);
+                const bVal = (parseInt(b['Year'], 10) * 100) + (getMonthNumber(b['Month']) + 1);
+                return aVal - bVal;
+            });
+
+            if (customerData.length === 0) {
+                 detailsTbody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">No hay datos de detalle para este cliente con los filtros aplicados.</td></tr>`;
+            } else {
+                customerData.forEach(row => {
+                    const tr = document.createElement('tr');
+                    const observationDate = `${row['Year']}-${String(getMonthNumber(row['Month']) + 1).padStart(2, '0')}`;
+                    tr.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${observationDate}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${row['Type'] || ''}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(parseInt(row['Licenses'], 10) || 0).toLocaleString('es-ES')}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${(parseInt(row['RAU Consumption'], 10) || 0).toLocaleString('es-ES')}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-semibold">${(parseInt(row['Nb. Exceeded Licenses'], 10) || 0).toLocaleString('es-ES')}</td>
+                    `;
+                    detailsTbody.appendChild(tr);
+                });
+            }
+
+            detailsSection.classList.remove('hidden');
+        }
+
+        function updateConsumptionTrendsChart(data) {
+            const trendData = data.reduce((acc, row) => {
+                const monthNum = getMonthNumber(row['Month']);
+                if (row['Year'] && monthNum !== -1) {
+                    const period = `${row['Year']}-${String(monthNum + 1).padStart(2, '0')}`;
+                    if (!acc[period]) {
+                        acc[period] = { licenses: 0, rau: 0, nominal: 0 };
+                    }
+                    acc[period].licenses += parseInt(row['Licenses'], 10) || 0;
+                    acc[period].rau += parseInt(row['RAU Consumption'], 10) || 0;
+                    acc[period].nominal += parseInt(row['Nominal Consumption'], 10) || 0;
+                }
+                return acc;
+            }, {});
+            const sortedPeriods = Object.entries(trendData).sort(([a], [b]) => a.localeCompare(b));
+            const labels = sortedPeriods.map(item => item[0]);
+            
+            const ctx = document.getElementById('consumption-trends-chart').getContext('2d');
+            if (consumptionTrendsChartInstance) consumptionTrendsChartInstance.destroy();
+            consumptionTrendsChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Licenses', data: sortedPeriods.map(item => item[1].licenses), borderColor: 'rgb(59, 130, 246)', tension: 0.1 },
+                        { label: 'RAU Consumption', data: sortedPeriods.map(item => item[1].rau), borderColor: 'rgb(34, 197, 94)', tension: 0.1 },
+                        { label: 'Nominal Consumption', data: sortedPeriods.map(item => item[1].nominal), borderColor: 'rgb(249, 115, 22)', tension: 0.1 }
+                    ]
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true } }, plugins: { legend: { position: 'top' } } }
+            });
+        }
+
+        function updateDynamicCharts(data) {
+            const chartColors = ['#3B82F6', '#10B981', '#F97316', '#8B5CF6', '#EC4899', '#F59E0B', '#6366F1', '#14B8A6'];
+
+            // Chart 1: Customers by License Type
+            const licenseTypeData = data.reduce((acc, row) => {
+                const type = row['Type'] || 'No especificado';
+                if(type.trim() === '') return acc; // Skip empty types
+                if (!acc.has(type)) acc.set(type, new Set());
+                acc.get(type).add(row['Customer']);
+                return acc;
+            }, new Map());
+            
+            const licenseTypeLabels = Array.from(licenseTypeData.keys());
+            const licenseTypeCounts = licenseTypeLabels.map(label => licenseTypeData.get(label).size);
+
+            if (licenseTypeChartInstance) licenseTypeChartInstance.destroy();
+            const licenseTypeCtx = document.getElementById('license-type-chart').getContext('2d');
+            licenseTypeChartInstance = new Chart(licenseTypeCtx, {
+                type: 'doughnut',
+                data: { labels: licenseTypeLabels, datasets: [{ data: licenseTypeCounts, backgroundColor: chartColors }] },
+                options: { responsive: true, plugins: { legend: { position: 'top' } } }
+            });
+
+            // Chart 2: Customers by Product
+            const productData = data.reduce((acc, row) => {
+                const platform = row['Platform'] || 'No especificado';
+                if(platform.trim() === '') return acc;
+                if (!acc.has(platform)) acc.set(platform, new Set());
+                acc.get(platform).add(row['Customer']);
+                return acc;
+            }, new Map());
+
+            const productLabels = Array.from(productData.keys());
+            const productCounts = productLabels.map(label => productData.get(label).size);
+
+            if (productChartInstance) productChartInstance.destroy();
+            const productCtx = document.getElementById('product-chart').getContext('2d');
+            productChartInstance = new Chart(productCtx, {
+                type: 'pie',
+                data: { labels: productLabels, datasets: [{ data: productCounts, backgroundColor: chartColors }] },
+                options: { responsive: true, plugins: { legend: { position: 'top' } } }
+            });
+
+            // Chart 3: Customer Distribution by Licenses
+            const customerMaxLicenses = data.reduce((acc, row) => {
+                const licenses = parseInt(row['Licenses'], 10);
+                if (!isNaN(licenses)) {
+                    acc.set(row['Customer'], Math.max(acc.get(row['Customer']) || 0, licenses));
+                }
+                return acc;
+            }, new Map());
+
+            const BINS = [
+                { label: '0-50', max: 50 }, { label: '51-250', max: 250 },
+                { label: '251-1k', max: 1000 }, { label: '1k-5k', max: 5000 },
+                { label: '5k+', max: Infinity }
+            ];
+            const binCounts = new Array(BINS.length).fill(0);
+            
+            customerMaxLicenses.forEach(licenses => {
+                let binIndex = BINS.findIndex(bin => licenses <= bin.max);
+                if (binIndex !== -1) binCounts[binIndex]++;
+            });
+
+            if (licenseDistributionChartInstance) licenseDistributionChartInstance.destroy();
+            const distCtx = document.getElementById('license-distribution-chart').getContext('2d');
+            licenseDistributionChartInstance = new Chart(distCtx, {
+                type: 'bar',
+                data: {
+                    labels: BINS.map(b => b.label),
+                    datasets: [{ label: 'Nº de Clientes', data: binCounts, backgroundColor: 'rgba(139, 92, 246, 0.7)' }]
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }, plugins: { legend: { display: false } } }
+            });
+        }
+    </script>
+</body>
+</html>
+
